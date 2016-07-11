@@ -149,7 +149,7 @@ class LittleBigQuery(object):
             datasetId = self.dataset
             
         self.bigquery_service.tables().delete(projectId=self.project_id, 
-            datasetId=datasetId, tableId=tableId)
+            datasetId=datasetId, tableId=tableId).execute()
     
     #dropPartition
     #partitionTable(by={"YEAR"|"MONTH"|"DAY"})
@@ -272,13 +272,49 @@ class LittleBigQuery(object):
         return self.listProjects()
             
     #createTableFromFrame
+    #createTableFromSheet
+    def createTableFromSheet(self, tableName, schema, sheet_url, skip_rows=0, datasetId=None):
+        """
+        Create a BigQuery Table from a Google Sheet stored in Google Drive.
+        sheet_url must be a link to Google Drive.
+        
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+        >>> BQ.useDataset("little_big_query_test")
+        >>> BQ.createTableFromSheet("my_sheet_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "https://docs.google.com/spreadsheets/d/1rG30jAhUXY5vVKYIe15CwveytIeq2k_kAzyoWMt-75I/edit?usp=sharing", "little_big_query_test")
+        >>> BQ.dropTable("my_sheet_table")
+        """
+        if not datasetId:
+            datasetId = self.dataset
+        
+        # structure the request
+        request = {
+                  "externalDataConfiguration": {
+                   "sourceUris": [
+                    sheet_url
+                   ],
+                   "schema": {
+                    "fields": [{"name": i[0], "type":i[1]} for i in schema]},
+                   "sourceFormat": "GOOGLE_SHEETS",
+                   "googleSheetsOptions": {
+                    "skipLeadingRows": "0"
+                   }
+                  },
+                  "tableReference": {
+                   "projectId": self.project_id,
+                   "datasetId": datasetId,
+                   "tableId": tableName
+                  }
+                 }
+        
+        this_job = self.bigquery_service.tables().insert(
+            projectId=self.project_id, datasetId=datasetId,
+            body=request).execute()
+        
     #createTableFromCSV
     #createTableFromLocalCSV
     def createTableFromLocalCSV(self, tableName, schema, data_path, datasetId=None):
         """
         >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.createDataset("little_big_query_test", "Test from Bigger Query")
-        True
         >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromLocalCSV("my_csv_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "examples/MOCK_DATA.csv", "little_big_query_test")
         Waiting for job to finish...
@@ -289,7 +325,6 @@ class LittleBigQuery(object):
            f0_
         0   10
         >>> BQ.dropTable("my_csv_table")
-        >>> BQ.deleteDataset("little_big_query_test")
         """
         if not datasetId:
             datasetId = self.dataset
