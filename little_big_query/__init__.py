@@ -1,1 +1,1 @@
-from bigger_query import BiggerQuery
+from little_big_query import LittleBigQuery

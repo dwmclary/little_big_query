@@ -1,25 +1,27 @@
 #! /usr/bin/env python
 #
-# BiggerQuery, a sane python wrapper for BigQuery
+# LittleBigQuery, a sane python wrapper for BigQuery
 #
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from oauth2client.client import GoogleCredentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient import discovery
+from googleapiclient.http import MediaFileUpload
 from oauth2client.client import GoogleCredentials
 import uuid, time
 from datetime import datetime
 import json
 import pandas as pd
 
-class BiggerQueryException(Exception):
+class LittleBigQueryException(Exception):
     def __init__(self,*args,**kwargs):
         Exception.__init__(self,*args,**kwargs)
 
-class BiggerQuery(object):
+class LittleBigQuery(object):
     """
-    The BiggerQuery class.  This is the primary class for the wrapper.
+    The LittleBigQuery class.  This is the primary class for the wrapper.
     
     Attributes:
         projectId: the current projectId
@@ -97,7 +99,7 @@ class BiggerQuery(object):
             q: the query
             raw: Returns the raw result
             sync: Async (default) or sync operation
-        >>> BQ = BiggerQuery("google.com:pd-pm-experiments")
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
         >>> BQ.query("SELECT COUNT(*) as trip_count FROM [nyc-tlc:yellow.trips];")
         Waiting for job to finish...
         Job complete.
@@ -139,9 +141,16 @@ class BiggerQuery(object):
             
     #essential DBMS functions
     
-    #createTable
+
     #createPartitionedTable
     #dropTable
+    def dropTable(self, tableId, datasetId=None):
+        if not datasetId:
+            datasetId = self.dataset
+            
+        self.bigquery_service.tables().delete(projectId=self.project_id, 
+            datasetId=datasetId, tableId=tableId)
+    
     #dropPartition
     #partitionTable(by={"YEAR"|"MONTH"|"DAY"})
     #listPartitions
@@ -149,15 +158,18 @@ class BiggerQuery(object):
     #appendTableAsSelect
     #createPartitionAsSelect
     #appendPartitionAsSelect
+    #useDataset
+    def useDataset(self, datasetId):
+        self.dataset = datasetId
+        
     #createDataset
     def createDataset(self, datasetName, description=None):
         """
         Create a new dataset.
-        >>> BQ = BiggerQuery("google.com:pd-pm-experiments")
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
         >>> BQ.createDataset("bigger_query_test", "Test from Bigger Query")
         True
         >>> BQ.deleteDataset("bigger_query_test")
-        True
         """
         add_description = False
         if description:
@@ -188,16 +200,16 @@ class BiggerQuery(object):
         try:
             ds.delete(projectId=self.project_id, 
                 datasetId=datasetName, deleteContents=deleteContents).execute()
-            return True
         except:
-            return False
+            pass
+
             
     #showDatasets
     def showDatasets(self):
         """
         List all available datasets
 
-        >>> BQ = BiggerQuery("nyc-tlc", "yellow")
+        >>> BQ = LittleBigQuery("nyc-tlc", "yellow")
         >>> BQ.showDatasets()
         [u'green', u'yellow']
         """
@@ -217,7 +229,7 @@ class BiggerQuery(object):
         List all tables in a dataset.  If no datasetId is provided,
         attempt to use the default datasetId specified in the class.
         If neither is present, raise an exception.
-        >>> BQ = BiggerQuery("nyc-tlc", "green")
+        >>> BQ = LittleBigQuery("nyc-tlc", "green")
         >>> BQ.showTables()
         [u'trips_2014', u'trips_2015']
         """
@@ -226,7 +238,7 @@ class BiggerQuery(object):
         dsID = None
         if not datasetId:
             if not self.dataset:
-                raise BiggerQueryException("No datasetId specified.")
+                raise LittleBigQueryException("No datasetId specified.")
             else:
                 dsID = self.dataset
         else:
@@ -259,10 +271,95 @@ class BiggerQuery(object):
         """
         return self.listProjects()
             
-    #loadTableFromFrame
-    #loadTableFromBucket
-    #loadTableFromCSV
-    #loadTableFromJSON
+    #createTableFromFrame
+    #createTableFromCSV
+    #createTableFromLocalCSV
+    def createTableFromLocalCSV(self, tableName, schema, data_path, datasetId=None):
+        """
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+        >>> BQ.createDataset("little_big_query_test", "Test from Bigger Query")
+        True
+        >>> BQ.useDataset("little_big_query_test")
+        >>> BQ.createTableFromLocalCSV("my_csv_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "examples/MOCK_DATA.csv", "little_big_query_test")
+        Waiting for job to finish...
+        Job complete.
+        >>> BQ.query("select count(*) from [little_big_query_test.my_csv_table]")
+        Waiting for job to finish...
+        Job complete.
+           f0_
+        0   10
+        >>> BQ.dropTable("my_csv_table")
+        >>> BQ.deleteDataset("little_big_query_test")
+        """
+        if not datasetId:
+            datasetId = self.dataset
+            
+        request = {
+            'configuration' : {
+                'load' : {
+                    'schema' : {
+                        'fields' : [{"name":i[0], "type":i[-1]} for i in schema]
+                    },
+                    'destinationTable' : {
+                        'projectId' : self.project_id,
+                        'datasetId' : datasetId,
+                        'tableId' : tableName
+                    },
+                    'source_format' : "CSV"
+                }
+            } 
+        }
+        mediaBody = MediaFileUpload(data_path,mimetype='application/octet-stream')
+        insert_job = self.bigquery_service.jobs().insert(projectId=self.project_id,
+            body=request, media_body=mediaBody)
+        
+        this_job = insert_job.execute()
+        self._poll_job(this_job)
+        
+    #createTableFromJSON
+    # def createTableFromLocalJSON(self, tableName, schema, data_path, datasetId=None):
+    #     """
+    #     >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+    #     >>> BQ.useDataset("little_big_query_test")
+    #     >>> schema=[("Name", "STRING"), ("Age", "INTEGER"), ("Weight", "FLOAT"), ("IsMagic", "BOOLEAN")]
+    #     >>> BQ.createTableFromLocalJSON("my_json_table", schema, "examples/MOCK_DATA.json", "little_big_query_test")
+    #     Waiting for job to finish...
+    #     Job complete.
+    #     >>> BQ.query("select count(*) from [little_big_query_test.my_json_table]")
+    #     Waiting for job to finish...
+    #     Job complete.
+    #        f0_
+    #     0   10
+    #     """
+    #     if not datasetId:
+    #         datasetId = self.dataset
+    #
+    #     request = {
+    #         'configuration' : {
+    #             'load' : {
+    #                 'schema' : {
+    #                     'fields' : [{"name":i[0], "type":i[-1]} for i in schema]
+    #                 },
+    #                 'destinationTable' : {
+    #                     'projectId' : self.project_id,
+    #                     'datasetId' : datasetId,
+    #                     'tableId' : tableName
+    #                 },
+    #                 'source_format' : "NEWLINE_DELIMITED_JSON"
+    #             }
+    #         }
+    #     }
+    #     print request
+    #     mediaBody = MediaFileUpload(data_path,mimetype='application/octet-stream')
+    #     insert_job = self.bigquery_service.jobs().insert(projectId=self.project_id,
+    #         body=request, media_body=mediaBody)
+    #
+    #     this_job = insert_job.execute()
+    #     self._poll_job(this_job)
+    
+    #createTableFromAvro
+    #createTableFromSheet
+    #createExternalTable
     #grantAccessByEmail
     #grantAccessByDomain
     #createView
