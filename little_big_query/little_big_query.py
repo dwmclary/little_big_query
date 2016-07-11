@@ -99,7 +99,7 @@ class LittleBigQuery(object):
             q: the query
             raw: Returns the raw result
             sync: Async (default) or sync operation
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments", "little_big_query_test")
         >>> BQ.query("SELECT COUNT(*) as trip_count FROM [nyc-tlc:yellow.trips];")
         Waiting for job to finish...
         Job complete.
@@ -118,6 +118,10 @@ class LittleBigQuery(object):
             "configuration" : {
                 "query" :{
                     "query" : q,
+                    "defaultDataset" : {
+                        "projectId" : self.project_id,
+                        "datasetId" : self.dataset
+                    },
                     "priority" : 'INTERACTIVE'                    }
             }
         }
@@ -311,6 +315,145 @@ class LittleBigQuery(object):
             body=request).execute()
         
     #createTableFromCSV
+    def createTableFromCSV(self, tableName, schema, gcs_path, datasetId=None):
+        """
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+        >>> BQ.useDataset("little_big_query_test")
+        >>> BQ.createTableFromCSV("my_gcs_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/csv/*", "little_big_query_test")
+        Waiting for job to finish...
+        Job complete.
+        >>> BQ.query("select count(*) from [little_big_query_test.my_gcs_table]")
+        Waiting for job to finish...
+        Job complete.
+           f0_
+        0   10
+        >>> BQ.dropTable("my_gcs_table")
+        """
+        if not datasetId:
+            datasetId = self.dataset
+        job_id = str(uuid.uuid4())
+        
+        # structure the request
+        request = {
+            "jobReference" : {
+                "projectId" : self.project_id,
+                "job_id" : job_id
+                },
+            'configuration' : {
+                'load' : {
+                    'sourceUris' : [gcs_path],
+                    'schema' : {
+                        'fields' : [{"name":i[0], "type":i[-1]} for i in schema]
+                    },
+                    'destinationTable' : {
+                        'projectId' : self.project_id,
+                        'datasetId' : datasetId,
+                        'tableId' : tableName
+                    },
+                    'source_format' : "CSV"
+                }
+            } 
+        }
+        insert_job = self.bigquery_service.jobs().insert(projectId=self.project_id,
+            body=request)
+        
+        this_job = insert_job.execute(num_retries=5)
+        self._poll_job(this_job)
+        
+    def createTableFromJSON(self, tableName, schema, gcs_path, datasetId=None):
+        """
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+        >>> BQ.useDataset("little_big_query_test")
+        >>> BQ.createTableFromJSON("my_json_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/json/*", "little_big_query_test")
+        Waiting for job to finish...
+        Job complete.
+        >>> BQ.query("select count(*) from [little_big_query_test.my_json_table]")
+        Waiting for job to finish...
+        Job complete.
+           f0_
+        0   10
+        """
+        if not datasetId:
+            datasetId = self.dataset
+            
+        job_id = str(uuid.uuid4())
+        
+        # structure the request
+        request = {
+         "jobReference": {
+          "projectId": "google.com:pd-pm-experiments",
+          "jobId": job_id
+         },
+         "configuration": {
+          "load": {
+           'destinationTable' : {
+               'projectId' : self.project_id,
+               'datasetId' : datasetId,
+               'tableId' : tableName
+           },
+           "sourceFormat": "NEWLINE_DELIMITED_JSON",
+           "sourceUris": [
+            gcs_path
+           ],
+           "schema": {
+            "fields": [{"name":f[0], "type": f[1]} for f in schema]
+            
+           }
+          }
+         }
+        }
+
+        print "request\n",request
+        insert_job = self.bigquery_service.jobs().insert(projectId=self.project_id,
+            body=request)
+        
+        this_job = insert_job.execute(num_retries=5)
+        self._poll_job(this_job)
+        
+    def createTableFromAvro(self, tableName, schema, gcs_path, datasetId=None):
+        """
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+        >>> BQ.useDataset("little_big_query_test")
+        >>> BQ.createTableFromAvro("my_avro_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/avro/*", "little_big_query_test")
+        Waiting for job to finish...
+        Job complete.
+        >>> BQ.query("select count(*) from [little_big_query_test.my_avro_table]")
+        Waiting for job to finish...
+        Job complete.
+           f0_
+        0   10
+        """
+        if not datasetId:
+            datasetId = self.dataset
+        job_id = str(uuid.uuid4())
+        
+        # structure the request
+        request = {
+            "jobReference" : {
+                "projectId" : self.project_id,
+                "job_id" : job_id
+                },
+            'configuration' : {
+                'load' : {
+                    'sourceUris' : [gcs_path],
+                    'schema' : {
+                        'fields' : [{"name":i[0], "type":i[-1]} for i in schema]
+                    },
+                    'destinationTable' : {
+                        'projectId' : self.project_id,
+                        'datasetId' : datasetId,
+                        'tableId' : tableName
+                    },
+                    'source_format' : "AVRO"
+                }
+            } 
+        }
+        insert_job = self.bigquery_service.jobs().insert(projectId=self.project_id,
+            body=request)
+        
+        this_job = insert_job.execute(num_retries=5)
+        self._poll_job(this_job)
+        
     #createTableFromLocalCSV
     def createTableFromLocalCSV(self, tableName, schema, data_path, datasetId=None):
         """
