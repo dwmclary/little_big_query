@@ -371,7 +371,8 @@ class LittleBigQuery(object):
         Waiting for job to finish...
         Job complete.
            f0_
-        0   10
+        0   20
+        >>> BQ.dropTable("my_json_table")
         """
         if not datasetId:
             datasetId = self.dataset
@@ -381,7 +382,7 @@ class LittleBigQuery(object):
         # structure the request
         request = {
          "jobReference": {
-          "projectId": "google.com:pd-pm-experiments",
+          "projectId": self.project_id,
           "jobId": job_id
          },
          "configuration": {
@@ -397,13 +398,11 @@ class LittleBigQuery(object):
            ],
            "schema": {
             "fields": [{"name":f[0], "type": f[1]} for f in schema]
-            
            }
           }
          }
         }
 
-        print "request\n",request
         insert_job = self.bigquery_service.jobs().insert(projectId=self.project_id,
             body=request)
         
@@ -422,6 +421,7 @@ class LittleBigQuery(object):
         Job complete.
            f0_
         0   10
+        >>> BQ.dropTable("my_avro_table")
         """
         if not datasetId:
             datasetId = self.dataset
@@ -429,25 +429,28 @@ class LittleBigQuery(object):
         
         # structure the request
         request = {
-            "jobReference" : {
-                "projectId" : self.project_id,
-                "job_id" : job_id
-                },
-            'configuration' : {
-                'load' : {
-                    'sourceUris' : [gcs_path],
-                    'schema' : {
-                        'fields' : [{"name":i[0], "type":i[-1]} for i in schema]
-                    },
-                    'destinationTable' : {
-                        'projectId' : self.project_id,
-                        'datasetId' : datasetId,
-                        'tableId' : tableName
-                    },
-                    'source_format' : "AVRO"
-                }
-            } 
+         "jobReference": {
+          "projectId": self.project_id,
+          "jobId": job_id
+         },
+         "configuration": {
+          "load": {
+           "destinationTable": {
+            "projectId": self.project_id,
+            "datasetId": datasetId,
+            "tableId": tableName
+           },
+           "sourceFormat": "AVRO",
+           "sourceUris": [
+            gcs_path
+           ],
+          "schema": {
+           "fields": [{"name":f[0], "type": f[1]} for f in schema]
+           }
+          }
+         }
         }
+        
         insert_job = self.bigquery_service.jobs().insert(projectId=self.project_id,
             body=request)
         
