@@ -14,6 +14,7 @@ import uuid, time
 from datetime import datetime
 import json
 import pandas as pd
+import sys
 
 class LittleBigQueryException(Exception):
     def __init__(self,*args,**kwargs):
@@ -101,7 +102,6 @@ class LittleBigQuery(object):
             q: the query
             raw: Returns the raw result
             sync: Async (default) or sync operation
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments", "little_big_query_test")
         >>> BQ.query("SELECT COUNT(*) as trip_count FROM [nyc-tlc:yellow.trips];")
         Waiting for job to finish...
         Job complete.
@@ -195,8 +195,6 @@ class LittleBigQuery(object):
     #partitionTable
     def partitionTable(self, oldTableName, newTableName, partitionKey, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromCSV("my_gcs_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time","TIMESTAMP")], "gs://little_big_query_test/csv/*", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -299,8 +297,6 @@ class LittleBigQuery(object):
     #describeTable
     def desc(self, tableName, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromCSV("my_gcs_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/csv/*", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -347,8 +343,6 @@ class LittleBigQuery(object):
     #createTableAsSelect
     def createTableAsSelect(self, q, tableName, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromCSV("my_gcs_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/csv/*", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -414,7 +408,6 @@ class LittleBigQuery(object):
     def createDataset(self, datasetName, description=None):
         """
         Create a new dataset.
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
         >>> BQ.createDataset("bigger_query_test", "Test from Bigger Query")
         True
         >>> BQ.deleteDataset("bigger_query_test")
@@ -455,7 +448,6 @@ class LittleBigQuery(object):
     def showDatasets(self):
         """
         List all available datasets
-
         >>> BQ = LittleBigQuery("nyc-tlc", "yellow")
         >>> BQ.showDatasets()
         [u'green', u'yellow']
@@ -525,9 +517,6 @@ class LittleBigQuery(object):
         """
         Create a BigQuery Table from a Google Sheet stored in Google Drive.
         sheet_url must be a link to Google Drive.
-        
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromSheet("my_sheet_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "https://docs.google.com/spreadsheets/d/1rG30jAhUXY5vVKYIe15CwveytIeq2k_kAzyoWMt-75I/edit?usp=sharing", "little_big_query_test")
         >>> BQ.dropTable("my_sheet_table")
         """
@@ -567,8 +556,6 @@ class LittleBigQuery(object):
         
     def createTableFromCSV(self, tableName, schema, gcs_path, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromCSV("my_gcs_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/csv/*", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -619,8 +606,6 @@ class LittleBigQuery(object):
             
     def createTableFromJSON(self, tableName, schema, gcs_path, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromJSON("my_json_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/json/*", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -674,8 +659,6 @@ class LittleBigQuery(object):
             
     def createTableFromAvro(self, tableName, schema, gcs_path, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromAvro("my_avro_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/avro/*", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -729,8 +712,6 @@ class LittleBigQuery(object):
         
     def createTableFromLocalCSV(self, tableName, schema, data_path, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromLocalCSV("my_csv_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "examples/MOCK_DATA.csv", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -777,8 +758,6 @@ class LittleBigQuery(object):
     #createView
     def createView(self, q, viewName, datasetId=None):
         """
-        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
-        >>> BQ.useDataset("little_big_query_test")
         >>> BQ.createTableFromJSON("my_json_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time", "TIMESTAMP")], "gs://little_big_query_test/json/*", "little_big_query_test")
         Waiting for job to finish...
         Job complete.
@@ -819,4 +798,11 @@ class LittleBigQuery(object):
 
 if __name__ == "__main__":
     import doctest
-    doctest.testmod()
+    if len(sys.argv) < 3:
+        print "Test Usage: little_big_query.py <project_id> <dataset_id>"
+    else:
+        projectName = sys.argv[1]
+        datasetId = sys.argv[2]
+        BQ = LittleBigQuery(projectName)
+        BQ.useDataset("little_big_query_test")
+        doctest.testmod(extraglobs={"BQ":BQ, "datasetId":datasetId})
