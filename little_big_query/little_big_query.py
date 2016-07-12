@@ -35,12 +35,13 @@ class LittleBigQuery(object):
         self.project_id = projectId
         self.dataset = dataset
         
-    def _poll_job(self, job):
+    def _poll_job(self, job, silent=False):
         """Waits for a job to complete.  Adapted from the 
         Google BigQuery Samples
         """
 
-        print('Waiting for job to finish...')
+        if not silent:
+            print('Waiting for job to finish...')
 
         request = self.bigquery_service.jobs().get(
             projectId=self.project_id,
@@ -52,7 +53,8 @@ class LittleBigQuery(object):
             if result['status']['state'] == 'DONE':
                 if 'errorResult' in result['status']:
                     raise RuntimeError(result['status']['errorResult'])
-                print('Job complete.')
+                if not silent:
+                    print('Job complete.')
                 return True
 
             time.sleep(1)
@@ -182,17 +184,116 @@ class LittleBigQuery(object):
     #dropTable
     def dropTable(self, tableId, datasetId=None):
         if not datasetId:
-            datasetId = self.dataset
+            if not self.dataset:
+                raise LittleBigQueryException("No datasetId specified.")
+            else:
+                datasetId = self.dataset
             
         self.bigquery_service.tables().delete(projectId=self.project_id, 
             datasetId=datasetId, tableId=tableId).execute()
     
     #partitionTable
+    def partitionTable(self, oldTableName, newTableName, partitionKey, datasetId=None):
+        """
+        >>> BQ = LittleBigQuery("google.com:pd-pm-experiments")
+        >>> BQ.useDataset("little_big_query_test")
+        >>> BQ.createTableFromCSV("my_gcs_table", [("id", "INTEGER"), ("email", "STRING"), ("amount", "FLOAT"), ("event_time","TIMESTAMP")], "gs://little_big_query_test/csv/*", "little_big_query_test")
+        Waiting for job to finish...
+        Job complete.
+        >>> BQ.partitionTable("my_gcs_table", "my_p_table", "event_time") # doctest: +ELLIPSIS
+        Waiting for job to finish...
+        ...
+        >>> BQ.showTables()
+        [u'my_gcs_table', u'my_p_table']
+        >>> BQ.query("select count(*) from [little_big_query_test.my_p_table$__PARTITIONS_SUMMARY__]")
+        Waiting for job to finish...
+        Job complete.
+           f0_
+        0   10
+        >>> BQ.dropTable("my_p_table")
+        >>> BQ.dropTable("my_csv_table")
+        """
+        if not datasetId:
+            if not self.dataset:
+                raise LittleBigQueryException("No datasetId specified.")
+            else:
+                datasetId = self.dataset
+        
+        #first, create a partitioned table that's empty
+        self.createPartitionedTable(newTableName, datasetId=datasetId)
+        
+        #gather the years
+        year_query = "SELECT YEAR(%s) as my_years FROM %s.%s GROUP BY 1;" % (partitionKey,datasetId,oldTableName)
+        my_years = self.query(year_query)["my_years"].tolist()
+        #make yearly shards for the old table
+        for y in my_years:
+            tempTableName = oldTableName + "_" + str(y)
+            extractQuery = "SELECT * from %s.%s WHERE YEAR(%s) = %d" % (datasetId, oldTableName, partitionKey, y)
+            self.createTableAsSelect(extractQuery, tempTableName)
+            #get the months in this shard
+            month_query = "SELECT MONTH(%s) as my_months FROM %s.%s GROUP BY 1;" % (partitionKey,datasetId,tempTableName)
+            my_months = self.query(month_query)["my_months"].tolist()
+            #make monthly sub-shards
+            for mon in my_months:
+                monTempTable = "%s_%d%02d" % (oldTableName, y, mon)
+                mextractQuery = "SELECT * from %s.%s WHERE MONTH(%s) = %d" % (datasetId, tempTableName, partitionKey, mon)
+                self.createTableAsSelect(mextractQuery, monTempTable)
+                #make daily sub-sub-shards
+                day_query = "SELECT DAY(%s) as my_days FROM %s.%s GROUP BY 1;" % (partitionKey,datasetId,monTempTable)
+                my_days = self.query(day_query)["my_days"].tolist()
+                for day in my_days:
+                    dayTempTable = "%s_%d%02d%02d" % (oldTableName, y, mon, day)
+                    dextractQuery = "SELECT * from %s.%s WHERE DAY(%s) = %d" % (datasetId, monTempTable, partitionKey, day)
+                    #create the daily tables
+                    self.createTableAsSelect(dextractQuery, dayTempTable)
+                    #copy that table into the new partition
+                    partition = "%s$%d%02d%02d" % (newTableName, y, mon, day)
+                    # get a new job ID
+                    job_id = str(uuid.uuid4())
+        
+                    # structure the request
+                    request = {
+                        "jobReference" : {
+                            "projectId" : self.project_id,
+                            "job_id" : job_id
+                        },
+                        "configuration" : {
+                           "copy": {
+                                 "sourceTable": {       
+                                   "projectId": self.project_id,
+                                   "datasetId": datasetId,
+                                   "tableId": dayTempTable
+                                 },
+                                 "destinationTable": {  
+                                   "projectId": self.project_id,
+                                   "datasetId": datasetId,
+                                   "tableId": partition
+                                 },
+                                 # "createDisposition": string,  // Optional
+                                 # "writeDisposition": string,   // Optional
+                               },
+                           }
+                    }
+
+                    this_job = self.bigquery_service.jobs().insert(
+                        projectId=self.project_id,
+                        body=request).execute(num_retries=5)
+
+                    partition_ready = self._poll_job(this_job)
+                    
+                    #delete the shard
+                    self.dropTable(dayTempTable)
+                self.dropTable(monTempTable)
+            self.dropTable(tempTableName)
+                
+                
+                
+        
     #listPartitions
     def showPartitions(self, tableName, datasetId=None):
         if not datasetId:
                 datasetId = self.dataset
-        q = "select partition_id from [%s.%s.__PARTITIONS_SUMMARY]__" % (tableName, datasetId)
+        q = "select partition_id from [%s.%s$__PARTITIONS_SUMMARY__]" % (datasetId, tableName)
         return self.query(q)
     
     #describeTable
@@ -213,6 +314,35 @@ class LittleBigQuery(object):
         t = self.bigquery_service.tables()
         ts = t.get(projectId=self.project_id, datasetId=datasetId, tableId=tableName).execute()
         return ts["schema"]["fields"]
+    
+    #appendTableAsSelect
+    def appendTableAsSelect(self, q, tableName, datasetId=None):
+        # get a new job ID
+        job_id = str(uuid.uuid4())
+        
+        #query and fill the table
+        request = {
+            "jobReference" : {
+                "projectId" : self.project_id,
+                "job_id" : job_id
+            },
+            "configuration" : {
+                "query" :{
+                    "query" : q,
+                    "priority" : 'INTERACTIVE',
+                    "destinationTable" : {
+                        "projectId" : self.project_id,
+                        "datasetId": datasetId,
+                        "tableId" : tableName
+                        },
+                    "allowLargeResults" : 'true'
+                    }
+            }
+        }
+        this_job = self.bigquery_service.jobs().insert(
+            projectId=self.project_id,
+            body=request).execute(num_retries=5)
+        ready = self._poll_job(this_job)
         
     #createTableAsSelect
     def createTableAsSelect(self, q, tableName, datasetId=None):
