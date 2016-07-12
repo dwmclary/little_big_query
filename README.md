@@ -9,7 +9,7 @@ LittleBigQuery is a Python module to simplify access to [Google Big Query](bigqu
   - Results as [Pandas](pandas.pydata.org) DataFrames
   - Time-partitioning of existing tables with a TIMESTAMP column
 
-Usage:
+### Usage:
 
 `from little_big_query import *`
 
@@ -23,3 +23,14 @@ Usage:
 
 `bq.desc("myTable")`
 `
+
+### Installation with virtualenv
+If you haven't yet, `pip install virtualenv`
+
+`virutalenv lqb`
+
+`source activate lqb/bin/activate`
+
+`cd little_big_query`
+
+`python setup.py install`
