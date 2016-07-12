@@ -211,7 +211,7 @@ class LittleBigQuery(object):
            f0_
         0   10
         >>> BQ.dropTable("my_p_table")
-        >>> BQ.dropTable("my_csv_table")
+        >>> BQ.dropTable("my_gcs_table")
         """
         if not datasetId:
             if not self.dataset:
